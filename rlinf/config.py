@@ -778,6 +778,8 @@ def validate_embodied_cfg(cfg):
                     return "pd_joint_delta_pos"
                 elif robot == "panda-ee-dpos":
                     return "pd_ee_delta_pos"
+                elif "panda_wristcam" in robot:
+                    return "pd_ee_delta_pose"
                 elif "google_robot_static" in robot:
                     return "arm_pd_ee_delta_pose_align_interpolate_by_planner_gripper_pd_joint_target_delta_pos_interpolate_by_planner"
                 elif "widowx" in robot:

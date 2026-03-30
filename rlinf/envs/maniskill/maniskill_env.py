@@ -136,8 +136,12 @@ class ManiskillEnv(gym.Env):
             repeats=self.group_size
         ).to(self.device)
 
-    def _wrap_obs(self, raw_obs):
-        if getattr(self.cfg, "wrap_obs_mode", "vla") == "simple":
+    def _wrap_obs(self, raw_obs, infos=None):
+        wrap_obs_mode = getattr(self.cfg, "wrap_obs_mode", "vla")
+        if wrap_obs_mode == "raw":
+            assert infos is not None, "wrap_obs_mode='raw' requires infos from env"
+            return infos["extracted_obs"]
+        if wrap_obs_mode == "simple":
             if self.env.unwrapped.obs_mode == "state":
                 wrapped_obs = {
                     "states": raw_obs,
@@ -258,7 +262,7 @@ class ManiskillEnv(gym.Env):
                 else {}
             )
         raw_obs, infos = self.env.reset(seed=seed, options=options)
-        extracted_obs = self._wrap_obs(raw_obs)
+        extracted_obs = self._wrap_obs(raw_obs, infos=infos)
         if "env_idx" in options:
             env_idx = options["env_idx"]
             self._reset_metrics(env_idx)
@@ -270,11 +274,11 @@ class ManiskillEnv(gym.Env):
         self, actions: Union[Array, dict] = None, auto_reset=True
     ) -> tuple[Array, Array, Array, Array, dict]:
         raw_obs, _reward, terminations, truncations, infos = self.env.step(actions)
-        extracted_obs = self._wrap_obs(raw_obs)
+        extracted_obs = self._wrap_obs(raw_obs, infos=infos)
         step_reward = self._calc_step_reward(_reward, infos)
 
         if self.video_cfg.save_video:
-            self.add_new_frames(infos=infos, rewards=step_reward)
+            self.add_new_frames(infos=infos, rewards=step_reward, extracted_obs=extracted_obs)
 
         infos = self._record_metrics(step_reward, infos)
         if isinstance(terminations, bool):
@@ -406,13 +410,30 @@ class ManiskillEnv(gym.Env):
     def sample_action_space(self):
         return self.env.action_space.sample()
 
-    def add_new_frames(self, infos, rewards=None):
-        image = self.render(infos, rewards)
+    def add_new_frames(self, infos, rewards=None, extracted_obs=None):
+        image = self.render(infos, rewards)  # [H, W, 3] or [B*H, W, 3] tiled
+        show_extra = getattr(self.video_cfg, "show_extra_views", True)
+        if show_extra and extracted_obs is not None:
+            extra = extracted_obs.get("extra_view_images", None)
+            if extra is not None:
+                extra_imgs = common.to_numpy(extra)          # [B, N, H, W, 3]
+                if extra_imgs.ndim == 5:
+                    extra_imgs = extra_imgs[:, 0]            # [B, H, W, 3]
+                extra_tiled = tile_images(extra_imgs, nrows=int(np.sqrt(self.num_envs)))
+                image = np.concatenate([image, extra_tiled], axis=1)  # side-by-side
         self.render_images.append(image)
 
     def add_new_frames_from_obs(self, raw_obs):
         """For debugging render"""
-        raw_imgs = common.to_numpy(raw_obs["main_images"])
+        raw_imgs = common.to_numpy(raw_obs["main_images"])  # [B, H, W, 3]
+        show_extra = getattr(self.video_cfg, "show_extra_views", True)
+        if show_extra:
+            extra = raw_obs.get("extra_view_images", None)
+            if extra is not None:
+                extra_imgs = common.to_numpy(extra)             # [B, N, H, W, 3]
+                if extra_imgs.ndim == 5:
+                    extra_imgs = extra_imgs[:, 0]               # [B, H, W, 3]
+                raw_imgs = np.concatenate([raw_imgs, extra_imgs], axis=2)  # side-by-side
         raw_full_img = tile_images(raw_imgs, nrows=int(np.sqrt(self.num_envs)))
         self.render_images.append(raw_full_img)
 
@@ -424,7 +445,7 @@ class ManiskillEnv(gym.Env):
             self.render_images,
             output_dir=output_dir,
             video_name=f"{self.video_cnt}",
-            fps=self.cfg.init_params.sim_config.control_freq,
+            fps=getattr(self.cfg.video_cfg, "video_fps", self.cfg.init_params.sim_config.control_freq),
             verbose=False,
         )
         self.video_cnt += 1

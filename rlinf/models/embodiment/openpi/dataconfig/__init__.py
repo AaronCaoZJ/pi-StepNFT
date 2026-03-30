@@ -32,6 +32,9 @@ from rlinf.models.embodiment.openpi.dataconfig.behavior_dataconfig import (
 from rlinf.models.embodiment.openpi.dataconfig.calvin_dataconfig import (
     LeRobotCalvinDataConfig,
 )
+from rlinf.models.embodiment.openpi.dataconfig.franka_co_training_dataconfig import (
+    LeRobotFrankaEEDataConfig,
+)
 from rlinf.models.embodiment.openpi.dataconfig.franka_dataconfig import (
     CustomDataConfig,
 )
@@ -254,6 +257,24 @@ _CONFIGS = [
             action_train_with_rotation_6d=False,  # User can add extra config in custom dataset
         ),
         pytorch_weight_path="checkpoints/torch/pi0_base",
+    ),
+    TrainConfig(
+        name="pi05_blockpap_mix",
+        model=pi0_config.Pi0Config(
+            pi05=True, action_horizon=8, discrete_state_input=False
+        ),
+        data=LeRobotFrankaEEDataConfig(
+            repo_id="BlockPAP-v1_Mix",
+            default_prompt=None,
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(
+                assets_dir="checkpoints/torch/pi05_blockpap_mix/assets"
+            ),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "checkpoints/jax/pi05_base"
+        ),
+        pytorch_weight_path="checkpoints/torch/pi05_base",
     ),
 ]
 

@@ -27,7 +27,17 @@ def prepare_actions_for_maniskill(
     policy,
 ) -> torch.Tensor:
     if "panda" in policy:
-        return raw_chunk_actions
+        # Scale raw model outputs (meters/radians) to [-1, 1] for pd_ee_delta_pose controller.
+        # ManiSkill clip_and_scale_action: pos → 0.1*input, rot → rot_lower*input (-0.1*input).
+        # Gripper: convert absolute [0,1] total width to per-finger PDJointPosMimic [-1,1].
+        POS_LIMIT = 0.1
+        GRIPPER_LOWER, GRIPPER_UPPER = -0.01, 0.04
+        actions = raw_chunk_actions.clone() if isinstance(raw_chunk_actions, torch.Tensor) else raw_chunk_actions.copy()
+        actions[..., :3] = actions[..., :3] / POS_LIMIT           # pos: meters → [-1, 1]
+        actions[..., 3:6] = actions[..., 3:6] / (-POS_LIMIT)      # rot: radians → [-1, 1]
+        grip = actions[..., 6].clip(0.0, 1.0) * 0.08 / 2          # total [0,1] → per-finger [0, 0.04]
+        actions[..., 6] = 2.0 * (grip - GRIPPER_LOWER) / (GRIPPER_UPPER - GRIPPER_LOWER) - 1.0
+        return actions
     # TODO only suitable for action_dim = 7
     reshaped_actions = raw_chunk_actions.reshape(-1, action_dim)
     batch_size = reshaped_actions.shape[0]

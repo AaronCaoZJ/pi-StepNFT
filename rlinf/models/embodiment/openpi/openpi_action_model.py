@@ -50,6 +50,9 @@ class OpenPi0Config(Pi0Config):
     # config for rl
     config_name: str = "pi0_libero"  # pi0_libero, pi05_libero, pi0_maniskill, pi05_maniskill, pi0_metaworld, pi05_metaworld
     num_images_in_input: int = 2  # number of images in input
+    # Explicit ordered list of views to feed the model: "image", "back_image", "wrist_image".
+    # Empty tuple (default) means fall back to num_images_in_input auto-detection.
+    image_input_views: tuple = field(default_factory=tuple)
     noise_method: str = "flow_sde"  # flow_sde, flow_noise, flow_cps
     
     # noise config for flow-sde
@@ -543,9 +546,21 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             if torch.is_tensor(state):
                 state = state.to(dtype=torch.float32)
             processed_obs["observation/state"] = state
+        # Determine which views to include based on image_input_views config.
+        # If image_input_views is set, only include listed views (besides "image" which is always included).
+        # If empty, include all available views from env_obs (legacy behaviour).
+        views = set(self.config.image_input_views)
+        use_all = len(views) == 0
+
         # wrist image observation
-        if env_obs["wrist_images"] is not None:
+        if (use_all or "wrist_image" in views) and env_obs["wrist_images"] is not None:
             processed_obs["observation/wrist_image"] = env_obs["wrist_images"]
+        # extra view image (back_cam) → observation/back_image
+        extra = env_obs.get("extra_view_images", None)
+        if (use_all or "back_image" in views) and extra is not None:
+            if extra.ndim == 5:   # [B, N, H, W, C] → take first view
+                extra = extra[:, 0]
+            processed_obs["observation/back_image"] = extra
         # store used keys
         return processed_obs
 
